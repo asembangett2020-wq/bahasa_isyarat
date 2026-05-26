@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BISINDO Detector 🤟</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Fredoka+One&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <style>
+    :root {
+      --pink:    #FF6B9D;
+      --pink-lt: #FFD6E8;
+      --mint:    #4ECDC4;
+      --mint-lt: #C7F5F2;
+      --yellow:  #FFE66D;
+      --purple:  #C084FC;
+      --purple-lt:#F3E8FF;
+      --bg:      #FFF8FD;
+      --card:    #FFFFFF;
+      --text:    #2D1B4E;
+      --muted:   #9B8AAB;
+      --radius:  20px;
+      --shadow:  0 8px 32px rgba(100,0,100,0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Nunito', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Floating blobs */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(70px);
+      opacity: 0.18;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .blob-1 { width: 380px; height: 380px; background: var(--pink);   top: -80px;  left: -80px; }
+    .blob-2 { width: 300px; height: 300px; background: var(--mint);   bottom: 60px; right: -60px; }
+    .blob-3 { width: 220px; height: 220px; background: var(--yellow); top: 50%;    left: 60%;   }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+
+    /* Header */
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      animation: fadeDown 0.7s ease;
+    }
+    .logo-emoji {
+      font-size: 3.5rem;
+      display: block;
+      margin-bottom: 0.3rem;
+      animation: wave 2s infinite;
+    }
+    @keyframes wave {
+      0%,100% { transform: rotate(-5deg); }
+      50%      { transform: rotate(10deg); }
+    }
+    h1 {
+      font-family: 'Fredoka One', cursive;
+      font-size: clamp(2rem, 5vw, 3rem);
+      background: linear-gradient(135deg, var(--pink), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: 1px;
+    }
+    .tagline {
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin-top: 0.4rem;
+      font-weight: 600;
+    }
+
+    /* Status badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--purple-lt);
+      color: var(--purple);
+      border-radius: 50px;
+      padding: 6px 16px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-top: 1rem;
+      transition: all 0.3s;
+    }
+    .status-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--purple);
+      animation: pulse 1.5s infinite;
+    }
+    .status-badge.ready   { background: var(--mint-lt); color: #0D9488; }
+    .status-badge.ready .status-dot { background: #0D9488; animation: none; }
+    .status-badge.error   { background: #FFE4E8; color: #E11D48; }
+    .status-badge.error .status-dot { background: #E11D48; animation: none; }
+    @keyframes pulse {
+      0%,100% { opacity:1; transform: scale(1); }
+      50%      { opacity:0.4; transform: scale(1.3); }
+    }
+
+    /* Main grid */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      animation: fadeUp 0.7s ease 0.2s both;
+    }
+    @media (max-width: 640px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Cards */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.5rem;
+      border: 2px solid transparent;
+      transition: border-color 0.3s;
+    }
+    .card:hover { border-color: var(--pink-lt); }
+    .card-title {
+      font-weight: 800;
+      font-size: 0.95rem;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+    }
+
+    /* Camera */
+    .camera-wrapper {
+      position: relative;
+      background: #1a0b2e;
+      border-radius: 14px;
+      overflow: hidden;
+      aspect-ratio: 4/3;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      display: block;
+    }
+    #canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      transform: scaleX(-1);
+    }
+    .camera-off-msg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #8B6BA8;
+      font-size: 2.5rem;
+      gap: 0.5rem;
+    }
+    .camera-off-msg span {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #6B4F8A;
+    }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      border: none;
+      border-radius: 50px;
+      font-family: 'Nunito', sans-serif;
+      font-weight: 800;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--pink), var(--purple));
+      color: #fff;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(192,132,252,0.35); }
+    .btn-secondary {
+      background: var(--pink-lt);
+      color: var(--pink);
+    }
+    .btn-secondary:hover { background: #FFB8D8; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+    /* Result panel */
+    .result-letter {
+      font-family: 'Fredoka One', cursive;
+      font-size: 5.5rem;
+      text-align: center;
+      line-height: 1;
+      margin: 1rem 0 0.25rem;
+      background: linear-gradient(135deg, var(--pink), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      transition: all 0.3s;
+    }
+    .result-word {
+      font-size: 1.15rem;
+      font-weight: 800;
+      text-align: center;
+      color: var(--text);
+      min-height: 1.6rem;
+    }
+    .confidence-bar-wrap {
+      margin-top: 1.25rem;
+    }
+    .conf-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .conf-track {
+      height: 10px;
+      background: var(--purple-lt);
+      border-radius: 50px;
+      overflow: hidden;
+    }
+    .conf-fill {
+      height: 100%;
+      border-radius: 50px;
+      background: linear-gradient(90deg, var(--mint), var(--purple));
+      transition: width 0.4s cubic-bezier(.34,1.56,.64,1);
+      width: 0%;
+    }
+
+    /* Top-5 list */
+    .top5-list {
+      margin-top: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .top5-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+    .top5-lbl {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--pink-lt);
+      color: var(--pink);
+      font-family: 'Fredoka One', cursive;
+      font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .top5-bar {
+      flex: 1;
+      height: 8px;
+      background: #F0EBF8;
+      border-radius: 50px;
+      overflow: hidden;
+    }
+    .top5-bar-fill {
+      height: 100%;
+      border-radius: 50px;
+      background: var(--pink-lt);
+      transition: width 0.4s ease;
+    }
+    .top5-bar-fill.rank1 { background: linear-gradient(90deg, var(--pink), var(--purple)); }
+    .top5-pct {
+      width: 36px;
+      text-align: right;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    /* Sentence builder */
+    .sentence-card { grid-column: 1 / -1; }
+    .sentence-box {
+      background: linear-gradient(135deg, #FFF0F8, #F3E8FF);
+      border-radius: 14px;
+      padding: 1rem 1.25rem;
+      min-height: 70px;
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: 3px;
+      word-break: break-all;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .letter-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(192,132,252,0.15);
+      font-family: 'Fredoka One', cursive;
+      font-size: 1.2rem;
+      color: var(--purple);
+      transition: transform 0.15s;
+      animation: popIn 0.25s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes popIn {
+      from { transform: scale(0); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    .cursor-blink {
+      display: inline-block;
+      width: 3px;
+      height: 32px;
+      background: var(--pink);
+      border-radius: 2px;
+      animation: blink 1s infinite;
+      align-self: center;
+    }
+    @keyframes blink {
+      0%,100% { opacity:1; } 50% { opacity:0; }
+    }
+    .sentence-actions {
+      display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap;
+    }
+    .btn-sm {
+      padding: 0.45rem 1rem;
+      font-size: 0.82rem;
+    }
+
+    /* Alphabet guide */
+    .alpha-card { grid-column: 1 / -1; }
+    .alpha-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .alpha-chip {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      background: var(--purple-lt);
+      color: var(--purple);
+      font-family: 'Fredoka One', cursive;
+      font-size: 1.1rem;
+      display: flex; align-items: center; justify-content: center;
+      cursor: default;
+      transition: transform 0.15s;
+    }
+    .alpha-chip:hover {
+      transform: scale(1.2) rotate(-3deg);
+      background: linear-gradient(135deg, var(--pink-lt), var(--purple-lt));
+    }
+    .alpha-chip.highlight {
+      background: linear-gradient(135deg, var(--pink), var(--purple));
+      color: white;
+      transform: scale(1.2);
+    }
+
+    /* Counters */
+    .stats-row {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+    .stat-chip {
+      flex: 1;
+      background: var(--pink-lt);
+      border-radius: 12px;
+      padding: 0.6rem 1rem;
+      text-align: center;
+    }
+    .stat-chip.mint { background: var(--mint-lt); }
+    .stat-num { font-family:'Fredoka One',cursive; font-size:1.5rem; color: var(--pink); }
+    .stat-chip.mint .stat-num { color: var(--mint); }
+    .stat-lbl { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+
+    /* Animations */
+    @keyframes fadeDown { from { opacity:0; transform:translateY(-20px); } to { opacity:1; transform:none; } }
+    @keyframes fadeUp   { from { opacity:0; transform:translateY(20px); }  to { opacity:1; transform:none; } }
+
+    /* empty state */
+    .empty-result {
+      text-align: center;
+      color: var(--muted);
+      padding: 1.5rem 0;
+    }
+    .empty-result .big { font-size: 2.5rem; }
+    .empty-result p { font-size: 0.9rem; font-weight: 600; }
+
+    .toast {
+      position: fixed;
+      bottom: 1.5rem; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--text);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 50px;
+      font-weight: 700;
+      font-size: 0.9rem;
+      transition: transform 0.4s cubic-bezier(.34,1.56,.64,1);
+      z-index: 999;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+<div class="blob blob-3"></div>
+
+<div class="container">
+  <header>
+    <span class="logo-emoji">🤟</span>
+    <h1>BISINDO Detector</h1>
+    <p class="tagline">Deteksi Bahasa Isyarat Indonesia secara real-time!</p>
+    <div class="status-badge" id="statusBadge">
+      <div class="status-dot"></div>
+      <span id="statusText">Memuat model...</span>
+    </div>
+  </header>
+
+  <div class="main-grid">
+
+    <!-- Camera Card -->
+    <div class="card">
+      <div class="card-title">📷 Kamera</div>
+      <div class="camera-wrapper" id="cameraWrapper">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas"></canvas>
+        <div class="camera-off-msg" id="cameraOffMsg">
+          <span style="font-size:2.5rem">📵</span>
+          <span>Klik "Mulai Kamera"</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btnCamera" onclick="toggleCamera()">▶ Mulai Kamera</button>
+        <button class="btn btn-secondary" id="btnCapture" onclick="captureFrame()" disabled>📸 Tangkap</button>
+      </div>
+      <div class="stats-row">
+        <div class="stat-chip">
+          <div class="stat-num" id="fpsCount">0</div>
+          <div class="stat-lbl">FPS</div>
+        </div>
+        <div class="stat-chip mint">
+          <div class="stat-num" id="frameCount">0</div>
+          <div class="stat-lbl">Frame</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-num" id="detectedCount">0</div>
+          <div class="stat-lbl">Deteksi</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result Card -->
+    <div class="card">
+      <div class="card-title">🎯 Hasil Deteksi</div>
+      <div id="resultArea" class="empty-result">
+        <div class="big">🖐️</div>
+        <p>Tunjukkan isyarat tangan ke kamera</p>
+      </div>
+
+      <!-- Confidence Bar -->
+      <div class="confidence-bar-wrap" id="confWrap" style="display:none">
+        <div class="conf-label">
+          <span>Keyakinan</span>
+          <span id="confPct">0%</span>
+        </div>
+        <div class="conf-track"><div class="conf-fill" id="confFill"></div></div>
+      </div>
+
+      <!-- Top 5 -->
+      <div class="top5-list" id="top5List"></div>
+
+      <!-- Alphabet Highlight -->
+      <div class="alpha-grid" style="margin-top:1.25rem;" id="alphaGuide"></div>
+    </div>
+
+    <!-- Sentence Builder -->
+    <div class="card sentence-card">
+      <div class="card-title">✍️ Pembuat Kalimat</div>
+      <div class="sentence-box" id="sentenceBox">
+        <div class="cursor-blink"></div>
+      </div>
+      <div class="sentence-actions">
+        <button class="btn btn-primary btn-sm" onclick="addLetter()">➕ Tambah Huruf</button>
+        <button class="btn btn-secondary btn-sm" onclick="addSpace()">⎵ Spasi</button>
+        <button class="btn btn-secondary btn-sm" onclick="deleteLetter()">⌫ Hapus</button>
+        <button class="btn btn-secondary btn-sm" onclick="clearSentence()">🗑️ Bersihkan</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyText()">📋 Salin</button>
+      </div>
+    </div>
+
+  </div><!-- /main-grid -->
+</div><!-- /container -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+const CLASSES = [
+  'A','B','C','D','E','F','G','H','I','J',
+  'K','L','M','N','O','P','Q','R','S','T',
+  'U','V','W','X','Y','Z'
+];
+const INPUT_SIZE = 224;
+
+let session = null;
+let stream  = null;
+let animId  = null;
+let running = false;
+let frames  = 0;
+let detected= 0;
+let lastFps = performance.now();
+let currentLetter = null;
+let sentence = [];
+
+// ─── Load ONNX ────────────────────────────────────────────────────────────────
+async function loadModel() {
+  setStatus('loading', 'Memuat model ONNX...');
+  try {
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+    session = await ort.InferenceSession.create('./best.onnx', {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all'
+    });
+    setStatus('ready', '✅ Model siap!');
+    buildAlphabet();
+    showToast('Model berhasil dimuat! 🎉');
+  } catch(e) {
+    setStatus('error', '❌ Gagal memuat model');
+    console.error('ONNX load error:', e);
+    showToast('Gagal memuat model. Pastikan best.onnx ada!');
+  }
+}
+
+// ─── Camera ───────────────────────────────────────────────────────────────────
+async function toggleCamera() {
+  if(running) {
+    stopCamera();
+  } else {
+    await startCamera();
+  }
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width:640, height:480, facingMode:'user' }, audio:false
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    await video.play();
+    document.getElementById('cameraOffMsg').style.display = 'none';
+    document.getElementById('btnCamera').innerHTML  = '⏹ Stop Kamera';
+    document.getElementById('btnCamera').className  = 'btn btn-secondary';
+    document.getElementById('btnCapture').disabled  = false;
+    running = true;
+    inferLoop();
+  } catch(e) {
+    showToast('Tidak bisa akses kamera: ' + e.message);
+  }
+}
+
+function stopCamera() {
+  running = false;
+  if(animId) cancelAnimationFrame(animId);
+  if(stream) stream.getTracks().forEach(t => t.stop());
+  const video = document.getElementById('video');
+  video.srcObject = null;
+  document.getElementById('cameraOffMsg').style.display = 'flex';
+  document.getElementById('btnCamera').innerHTML = '▶ Mulai Kamera';
+  document.getElementById('btnCamera').className = 'btn btn-primary';
+  document.getElementById('btnCapture').disabled = true;
+}
+
+// ─── Inference Loop ───────────────────────────────────────────────────────────
+async function inferLoop() {
+  if(!running) return;
+  frames++;
+  const now = performance.now();
+  if(now - lastFps >= 1000) {
+    document.getElementById('fpsCount').textContent = frames;
+    frames = 0; lastFps = now;
+  }
+  document.getElementById('frameCount').textContent = parseInt(document.getElementById('frameCount').textContent) + 1;
+
+  if(session) {
+    await runInference();
+  }
+  animId = requestAnimationFrame(inferLoop);
+}
+
+async function runInference() {
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  if(video.readyState < 2) return;
+
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+
+  // Preprocess
+  const imgData = getResizedImageData(ctx, video.videoWidth, video.videoHeight);
+  const tensor  = preprocessImage(imgData);
+
+  try {
+    // Try common input names
+    const inputName = session.inputNames[0];
+    const feeds = { [inputName]: tensor };
+    const results = await session.run(feeds);
+    const outputName = session.outputNames[0];
+    const output = results[outputName].data;
+
+    // Softmax
+    const probs = softmax(Array.from(output));
+    const sorted = probs.map((p,i) => ({p, c:CLASSES[i]||`cls${i}`}))
+                        .sort((a,b)=>b.p-a.p);
+
+    detected++;
+    document.getElementById('detectedCount').textContent = detected;
+    currentLetter = sorted[0].c;
+    updateResult(sorted);
+    drawBox(ctx, video.videoWidth, video.videoHeight, sorted[0]);
+  } catch(e) {
+    console.warn('Inference error:', e);
+  }
+}
+
+function getResizedImageData(ctx, w, h) {
+  const offscreen = document.createElement('canvas');
+  offscreen.width  = INPUT_SIZE;
+  offscreen.height = INPUT_SIZE;
+  const oCtx = offscreen.getContext('2d');
+  oCtx.drawImage(ctx.canvas, 0, 0, INPUT_SIZE, INPUT_SIZE);
+  return oCtx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
+}
+
+function preprocessImage(imgData) {
+  const { data } = imgData;
+  const n = INPUT_SIZE * INPUT_SIZE;
+  const float32 = new Float32Array(3 * n);
+  const mean = [0.485, 0.456, 0.406];
+  const std  = [0.229, 0.224, 0.225];
+  for(let i=0; i<n; i++) {
+    float32[i]       = (data[i*4]   / 255 - mean[0]) / std[0];
+    float32[n+i]     = (data[i*4+1] / 255 - mean[1]) / std[1];
+    float32[n*2+i]   = (data[i*4+2] / 255 - mean[2]) / std[2];
+  }
+  return new ort.Tensor('float32', float32, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+}
+
+function softmax(arr) {
+  const max = Math.max(...arr);
+  const exps = arr.map(x => Math.exp(x - max));
+  const sum  = exps.reduce((a,b) => a+b, 0);
+  return exps.map(e => e/sum);
+}
+
+function drawBox(ctx, w, h, top) {
+  const margin = w * 0.12;
+  ctx.save();
+  ctx.strokeStyle = '#FF6B9D';
+  ctx.lineWidth   = 3;
+  ctx.strokeRect(margin, margin, w - margin*2, h - margin*2);
+  ctx.fillStyle = 'rgba(255,107,157,0.15)';
+  ctx.fillRect(margin, margin, w - margin*2, h - margin*2);
+
+  ctx.fillStyle = '#FF6B9D';
+  ctx.font = 'bold 22px Nunito, sans-serif';
+  ctx.fillText(`${top.c} ${(top.p*100).toFixed(0)}%`, margin+10, margin+30);
+  ctx.restore();
+}
+
+// ─── UI Updates ───────────────────────────────────────────────────────────────
+function updateResult(sorted) {
+  const top  = sorted[0];
+  const pct  = Math.round(top.p * 100);
+
+  document.getElementById('resultArea').innerHTML = `
+    <div class="result-letter">${top.c}</div>
+    <div class="result-word">${bisindoName(top.c)}</div>
+  `;
+  document.getElementById('confWrap').style.display = 'block';
+  document.getElementById('confPct').textContent  = pct + '%';
+  document.getElementById('confFill').style.width = pct + '%';
+
+  // Top 5
+  const top5 = sorted.slice(0,5);
+  document.getElementById('top5List').innerHTML = top5.map((item,i) => `
+    <div class="top5-item">
+      <div class="top5-lbl">${item.c}</div>
+      <div class="top5-bar">
+        <div class="top5-bar-fill ${i===0?'rank1':''}" style="width:${Math.round(item.p*100)}%"></div>
+      </div>
+      <div class="top5-pct">${Math.round(item.p*100)}%</div>
+    </div>
+  `).join('');
+
+  // Highlight alphabet
+  highlightAlpha(top.c);
+}
+
+function bisindoName(c) {
+  const map = {
+    A:'Aku',B:'Buku',C:'Cuci',D:'Dada',E:'Enak',F:'Film',G:'Gigi',H:'Hari',
+    I:'Ini',J:'Jari',K:'Kaki',L:'Lihat',M:'Makan',N:'Nama',O:'Orang',P:'Pintu',
+    Q:'Qatar',R:'Rasa',S:'Suka',T:'Teman',U:'Udara',V:'Nilai',W:'Waktu',X:'Extra',
+    Y:'Ya',Z:'Zero'
+  };
+  return map[c] ? `✦ ${map[c]}` : '';
+}
+
+// ─── Alphabet Guide ───────────────────────────────────────────────────────────
+function buildAlphabet() {
+  const el = document.getElementById('alphaGuide');
+  el.innerHTML = CLASSES.map(c =>
+    `<div class="alpha-chip" id="alpha-${c}">${c}</div>`
+  ).join('');
+}
+
+function highlightAlpha(letter) {
+  document.querySelectorAll('.alpha-chip').forEach(el => el.classList.remove('highlight'));
+  const el = document.getElementById('alpha-' + letter);
+  if(el) el.classList.add('highlight');
+}
+
+// ─── Sentence Builder ─────────────────────────────────────────────────────────
+function renderSentence() {
+  const box = document.getElementById('sentenceBox');
+  const pills = sentence.map(ch =>
+    ch === ' '
+      ? `<div class="letter-pill" style="width:20px; background: var(--mint-lt);">•</div>`
+      : `<div class="letter-pill">${ch}</div>`
+  ).join('');
+  box.innerHTML = pills + '<div class="cursor-blink"></div>';
+}
+
+function addLetter() {
+  if(!currentLetter) { showToast('Belum ada huruf terdeteksi!'); return; }
+  sentence.push(currentLetter);
+  renderSentence();
+  showToast(`Huruf "${currentLetter}" ditambahkan!`);
+}
+
+function addSpace() {
+  sentence.push(' ');
+  renderSentence();
+}
+
+function deleteLetter() {
+  sentence.pop();
+  renderSentence();
+}
+
+function clearSentence() {
+  sentence = [];
+  renderSentence();
+}
+
+function copyText() {
+  const text = sentence.join('');
+  if(!text) { showToast('Kalimat kosong!'); return; }
+  navigator.clipboard.writeText(text).then(() => showToast('Tersalin: ' + text));
+}
+
+function captureFrame() {
+  addLetter();
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function setStatus(type, text) {
+  const badge = document.getElementById('statusBadge');
+  const span  = document.getElementById('statusText');
+  badge.className = 'status-badge ' + (type === 'ready' ? 'ready' : type === 'error' ? 'error' : '');
+  span.textContent = text;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+buildAlphabet();
+renderSentence();
+loadModel();
+</script>
+</body>
+</html>
