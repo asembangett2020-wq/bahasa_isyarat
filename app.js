@@ -11,7 +11,7 @@ const CONFIG = {
     
     // Batas keyakinan AI (0.45 = 45%). 
     // Jika AI terlalu sering salah tebak, naikkan angkanya (misal 0.60).
-    threshold: 0.25,
+    threshold: 0.45,
     
     // Batas untuk menghapus kotak deteksi yang menumpuk (Biarkan saja 0.4)
     iouThreshold: 0.4
@@ -84,8 +84,6 @@ async function processFrame() {
     
     // D. Membaca hasil tebakan AI[cite: 1]
     const numClasses = CONFIG.labels.length;
-    console.log("OUTPUT DIMS:", outputTensor.dims);
-    console.log("JUMLAH CLASS:", numClasses);
     const elements = 8400; 
     let rawBoxes = [];
 
